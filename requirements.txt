@@ -1,0 +1,4 @@
+PyQt5==5.15.9
+minecraft-launcher-lib==6.16
+random-username==1.0.2
+Pillow==10.1.0
