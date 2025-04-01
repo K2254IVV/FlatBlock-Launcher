@@ -1,11 +1,13 @@
 import sys
 import os
+import webbrowser
 from PyQt5.QtCore import QThread, pyqtSignal, QSize, Qt, QTimer
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, 
                             QComboBox, QSpacerItem, QSizePolicy, QProgressBar, 
                             QPushButton, QApplication, QMainWindow, QFrame, 
-                            QStackedWidget, QListWidget, QListWidgetItem, QMessageBox)
-from PyQt5.QtGui import QPixmap, QIcon, QFont
+                            QStackedWidget, QListWidget, QListWidgetItem, QMessageBox,
+                            QTabWidget, QGroupBox, QCheckBox)
+from PyQt5.QtGui import QPixmap, QIcon, QFont, QColor
 
 from minecraft_launcher_lib.utils import get_minecraft_directory, get_version_list
 from minecraft_launcher_lib.install import install_minecraft_version
@@ -15,27 +17,32 @@ from random_username.generate import generate_username
 from uuid import uuid1
 from subprocess import Popen
 
+# Константы
+VERSION = "1.0.01"
+APP_NAME = "FlatBlock"
+MINECRAFT_DIR = get_minecraft_directory().replace('minecraft', APP_NAME)
+
 class FlatStyle:
     @staticmethod
     def apply(app):
         app.setStyle("Fusion")
         palette = app.palette()
-        palette.setColor(palette.Window, Qt.white)
+        palette.setColor(palette.Window, QColor(240, 240, 240))
         palette.setColor(palette.WindowText, Qt.black)
         palette.setColor(palette.Base, Qt.white)
-        palette.setColor(palette.AlternateBase, Qt.lightGray)
+        palette.setColor(palette.AlternateBase, QColor(240, 240, 240))
         palette.setColor(palette.ToolTipBase, Qt.white)
         palette.setColor(palette.ToolTipText, Qt.black)
         palette.setColor(palette.Text, Qt.black)
-        palette.setColor(palette.Button, Qt.lightGray)
+        palette.setColor(palette.Button, QColor(230, 230, 230))
         palette.setColor(palette.ButtonText, Qt.black)
         palette.setColor(palette.BrightText, Qt.red)
-        palette.setColor(palette.Highlight, Qt.darkCyan)
+        palette.setColor(palette.Highlight, QColor(42, 130, 218))
         palette.setColor(palette.HighlightedText, Qt.white)
         app.setPalette(palette)
 
 class LaunchThread(QThread):
-    launch_setup_signal = pyqtSignal(str, str, int)
+    launch_setup_signal = pyqtSignal(str, str, int, bool)
     progress_update_signal = pyqtSignal(int, int, str)
     state_update_signal = pyqtSignal(bool)
     launch_finished = pyqtSignal(int)
@@ -46,15 +53,17 @@ class LaunchThread(QThread):
         self.version_id = ''
         self.username = ''
         self.ram_amount = 2048
+        self.demo_mode = False
         self.progress = 0
         self.progress_max = 0
         self.progress_label = ''
         self.process = None
 
-    def launch_setup(self, version_id, username, ram_amount):
+    def launch_setup(self, version_id, username, ram_amount, demo_mode):
         self.version_id = version_id
         self.username = username
         self.ram_amount = ram_amount
+        self.demo_mode = demo_mode
     
     def update_progress_label(self, value):
         self.progress_label = value
@@ -72,15 +81,18 @@ class LaunchThread(QThread):
         self.state_update_signal.emit(True)
 
         try:
-            install_minecraft_version(
-                versionid=self.version_id, 
-                minecraft_directory=minecraft_directory, 
-                callback={
-                    'setStatus': self.update_progress_label,
-                    'setProgress': self.update_progress,
-                    'setMax': self.update_progress_max
-                }
-            )
+            # Установка версии, если требуется
+            self.update_progress_label("Checking version...")
+            if not os.path.exists(os.path.join(MINECRAFT_DIR, "versions", self.version_id)):
+                install_minecraft_version(
+                    versionid=self.version_id, 
+                    minecraft_directory=MINECRAFT_DIR, 
+                    callback={
+                        'setStatus': self.update_progress_label,
+                        'setProgress': self.update_progress,
+                        'setMax': self.update_progress_max
+                    }
+                )
 
             if not self.username:
                 self.username = generate_username()[0]
@@ -89,12 +101,13 @@ class LaunchThread(QThread):
                 'username': self.username,
                 'uuid': str(uuid1()),
                 'token': '',
-                'jvmArguments': [f'-Xmx{self.ram_amount}M', f'-Xms{self.ram_amount//2}M']
+                'jvmArguments': [f'-Xmx{self.ram_amount}M', f'-Xms{self.ram_amount//2}M'],
+                'demo': self.demo_mode
             }
 
             command = get_minecraft_command(
                 version=self.version_id,
-                minecraft_directory=minecraft_directory,
+                minecraft_directory=MINECRAFT_DIR,
                 options=options
             )
             
@@ -107,186 +120,118 @@ class LaunchThread(QThread):
         finally:
             self.state_update_signal.emit(False)
 
-class NewsWidget(QWidget):
+class NewsTab(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout()
         self.setLayout(layout)
         
-        title = QLabel("Latest News")
-        title.setFont(QFont("Arial", 12, QFont.Bold))
+        title = QLabel("Minecraft News")
+        title.setFont(QFont("Arial", 14, QFont.Bold))
         layout.addWidget(title)
         
-        # Placeholder for news content
-        news_content = QLabel("Minecraft 1.20 update is now available!\n\n"
-                             "New features include:\n"
-                             "- Cherry blossom biome\n"
-                             "- Archaeology system\n"
-                             "- New mob: Sniffer")
-        news_content.setWordWrap(True)
-        layout.addWidget(news_content)
+        # Новости
+        news_items = [
+            {
+                "title": "Minecraft 1.20.4 Released",
+                "date": "2023-12-07",
+                "content": "The latest update includes bug fixes and performance improvements."
+            },
+            {
+                "title": "Minecraft Live 2023",
+                "date": "2023-10-15",
+                "content": "Watch the annual Minecraft event to learn about upcoming features!"
+            }
+        ]
+        
+        for item in news_items:
+            group = QGroupBox(f"{item['title']} - {item['date']}")
+            group.setStyleSheet("QGroupBox { border: 1px solid #ddd; border-radius: 5px; margin-top: 10px; }")
+            group_layout = QVBoxLayout()
+            content = QLabel(item["content"])
+            content.setWordWrap(True)
+            group_layout.addWidget(content)
+            
+            # Кнопка "Подробнее" (заглушка)
+            if item["title"] == "Minecraft Live 2023":
+                btn = QPushButton("Watch Now")
+                btn.setStyleSheet("max-width: 100px;")
+                btn.clicked.connect(lambda: webbrowser.open("https://www.minecraft.net/en-us/live"))
+                group_layout.addWidget(btn, 0, Qt.AlignRight)
+            
+            group.setLayout(group_layout)
+            layout.addWidget(group)
         
         layout.addStretch()
 
-class SettingsWidget(QWidget):
+class SettingsTab(QWidget):
     def __init__(self):
         super().__init__()
         layout = QVBoxLayout()
         self.setLayout(layout)
         
-        title = QLabel("Settings")
-        title.setFont(QFont("Arial", 12, QFont.Bold))
-        layout.addWidget(title)
+        # Настройки запуска
+        launch_group = QGroupBox("Launch Settings")
+        launch_layout = QVBoxLayout()
         
-        # RAM Settings
+        # RAM
         ram_layout = QHBoxLayout()
         ram_label = QLabel("RAM Allocation (MB):")
-        self.ram_slider = QComboBox()
-        self.ram_slider.addItems(["1024", "2048", "3072", "4096", "5120"])
-        self.ram_slider.setCurrentIndex(1)  # Default to 2048MB
+        self.ram_combo = QComboBox()
+        self.ram_combo.addItems(["1024", "2048", "3072", "4096", "5120", "6144", "7168", "8192"])
+        self.ram_combo.setCurrentIndex(1)  # 2048 по умолчанию
         
         ram_layout.addWidget(ram_label)
-        ram_layout.addWidget(self.ram_slider)
+        ram_layout.addWidget(self.ram_combo)
         ram_layout.addStretch()
-        layout.addLayout(ram_layout)
+        launch_layout.addLayout(ram_layout)
         
-        # Minecraft directory
-        dir_layout = QHBoxLayout()
-        dir_label = QLabel("Minecraft Directory:")
-        self.dir_display = QLabel(minecraft_directory)
-        self.dir_display.setWordWrap(True)
+        # Демо-режим
+        self.demo_check = QCheckBox("Enable demo mode")
+        launch_layout.addWidget(self.demo_check)
         
-        dir_layout.addWidget(dir_label)
-        dir_layout.addWidget(self.dir_display)
-        layout.addLayout(dir_layout)
+        launch_group.setLayout(launch_layout)
+        layout.addWidget(launch_group)
+        
+        # О программе
+        about_group = QGroupBox(f"About {APP_NAME}")
+        about_layout = QVBoxLayout()
+        
+        about_text = QLabel(f"""
+            <b>{APP_NAME} {VERSION}</b><br><br>
+            A simple Minecraft launcher built with Python and Qt.<br><br>
+            Minecraft is a trademark of Mojang Studios.<br>
+            This launcher is not affiliated with Mojang or Microsoft.
+        """)
+        about_text.setOpenExternalLinks(True)
+        about_text.setTextFormat(Qt.RichText)
+        about_text.setWordWrap(True)
+        
+        about_layout.addWidget(about_text)
+        about_group.setLayout(about_layout)
+        layout.addWidget(about_group)
         
         layout.addStretch()
 
-class MainWindow(QMainWindow):
-    def __init__(self):
+class PlayTab(QWidget):
+    def __init__(self, parent):
         super().__init__()
-        self.setWindowTitle("FlatLauncher 1.0")
-        self.setWindowIcon(QIcon("assets/icon.png"))
-        self.resize(800, 500)
-        self.setMinimumSize(600, 400)
-        
-        # Create main widgets
-        self.create_sidebar()
-        self.create_main_content()
-        
-        # Main layout
-        main_widget = QWidget()
-        main_layout = QHBoxLayout(main_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-        
-        main_layout.addWidget(self.sidebar, 1)
-        main_layout.addWidget(self.main_content, 3)
-        
-        self.setCentralWidget(main_widget)
-        
-        # Launch thread
-        self.launch_thread = LaunchThread()
-        self.launch_thread.state_update_signal.connect(self.state_update)
-        self.launch_thread.progress_update_signal.connect(self.update_progress)
-        self.launch_thread.launch_finished.connect(self.handle_launch_finished)
-        
-        # Load versions
-        self.load_versions()
-        
-        # Set default username
-        self.username.setText(generate_username()[0])
-    
-    def create_sidebar(self):
-        self.sidebar = QFrame()
-        self.sidebar.setFrameShape(QFrame.StyledPanel)
-        self.sidebar.setStyleSheet("background-color: #f0f0f0;")
-        
+        self.parent = parent
         layout = QVBoxLayout()
-        layout.setContentsMargins(10, 20, 10, 20)
+        self.setLayout(layout)
         
-        # Logo
-        self.logo = QLabel()
-        self.logo.setPixmap(QPixmap("assets/logo.png").scaled(150, 150, Qt.KeepAspectRatio))
-        self.logo.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.logo)
-        
-        layout.addSpacing(20)
-        
-        # Navigation list
-        self.nav_list = QListWidget()
-        self.nav_list.setStyleSheet("""
-            QListWidget {
-                border: none;
-                background: transparent;
-            }
-            QListWidget::item {
-                padding: 10px;
-                border-radius: 5px;
-            }
-            QListWidget::item:selected {
-                background: #2a82da;
-                color: white;
-            }
-        """)
-        
-        items = ["Play", "News", "Settings"]
-        for item in items:
-            list_item = QListWidgetItem(item)
-            list_item.setFont(QFont("Arial", 10))
-            self.nav_list.addItem(list_item)
-        
-        self.nav_list.setCurrentRow(0)
-        self.nav_list.currentRowChanged.connect(self.change_page)
-        layout.addWidget(self.nav_list)
-        
-        layout.addStretch()
-        
-        # Account info (placeholder)
-        account_label = QLabel("Logged in as: Player")
-        account_label.setFont(QFont("Arial", 8))
-        layout.addWidget(account_label)
-        
-        self.sidebar.setLayout(layout)
-    
-    def create_main_content(self):
-        self.main_content = QFrame()
-        self.main_content.setFrameShape(QFrame.StyledPanel)
-        
-        self.stacked_widget = QStackedWidget()
-        
-        # Play page
-        self.play_page = QWidget()
-        self.create_play_page()
-        self.stacked_widget.addWidget(self.play_page)
-        
-        # News page
-        self.news_page = NewsWidget()
-        self.stacked_widget.addWidget(self.news_page)
-        
-        # Settings page
-        self.settings_page = SettingsWidget()
-        self.stacked_widget.addWidget(self.settings_page)
-        
-        layout = QVBoxLayout(self.main_content)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.addWidget(self.stacked_widget)
-    
-    def create_play_page(self):
-        layout = QVBoxLayout(self.play_page)
-        
-        # Title
+        # Заголовок
         title = QLabel("Play Minecraft")
         title.setFont(QFont("Arial", 14, QFont.Bold))
         layout.addWidget(title)
         
-        # Username
+        # Имя пользователя
         self.username = QLineEdit()
         self.username.setPlaceholderText("Enter your username")
         self.username.setStyleSheet("padding: 8px; border: 1px solid #ddd; border-radius: 4px;")
         layout.addWidget(self.username)
         
-        # Version selection
+        # Выбор версии
         version_layout = QHBoxLayout()
         version_label = QLabel("Version:")
         self.version_select = QComboBox()
@@ -296,7 +241,7 @@ class MainWindow(QMainWindow):
         version_layout.addWidget(self.version_select)
         layout.addLayout(version_layout)
         
-        # Progress bar
+        # Прогресс
         self.start_progress_label = QLabel()
         self.start_progress_label.setVisible(False)
         self.start_progress_label.setStyleSheet("color: #555;")
@@ -316,8 +261,8 @@ class MainWindow(QMainWindow):
         """)
         layout.addWidget(self.start_progress)
         
-        # Play button
-        self.start_button = QPushButton("PLAY")
+        # Кнопка запуска
+        self.start_button = QPushButton("LAUNCH MINECRAFT")
         self.start_button.setStyleSheet("""
             QPushButton {
                 background-color: #2a82da;
@@ -326,6 +271,7 @@ class MainWindow(QMainWindow):
                 padding: 12px;
                 border-radius: 4px;
                 font-weight: bold;
+                font-size: 14px;
             }
             QPushButton:hover {
                 background-color: #1a6fc7;
@@ -339,41 +285,107 @@ class MainWindow(QMainWindow):
         
         layout.addStretch()
     
-    def change_page(self, index):
-        self.stacked_widget.setCurrentIndex(index)
+    def launch_game(self):
+        ram_amount = int(self.parent.settings_tab.ram_combo.currentText())
+        demo_mode = self.parent.settings_tab.demo_check.isChecked()
+        
+        if not self.username.text().strip():
+            QMessageBox.warning(self, "Username Required", "Please enter a username to play Minecraft.")
+            return
+            
+        self.parent.launch_thread.launch_setup_signal.emit(
+            self.version_select.currentText(),
+            self.username.text(),
+            ram_amount,
+            demo_mode
+        )
+        self.parent.launch_thread.start()
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle(f"{APP_NAME} {VERSION}")
+        self.setWindowIcon(QIcon("assets/icon.png"))
+        self.resize(800, 500)
+        self.setMinimumSize(600, 400)
+        
+        # Создаем папку для Minecraft, если ее нет
+        os.makedirs(MINECRAFT_DIR, exist_ok=True)
+        
+        # Инициализация UI
+        self.init_ui()
+        
+        # Поток для запуска Minecraft
+        self.launch_thread = LaunchThread()
+        self.launch_thread.state_update_signal.connect(self.state_update)
+        self.launch_thread.progress_update_signal.connect(self.update_progress)
+        self.launch_thread.launch_finished.connect(self.handle_launch_finished)
+        
+        # Загрузка версий Minecraft
+        self.load_versions()
+        
+        # Установка имени пользователя по умолчанию
+        self.play_tab.username.setText(generate_username()[0])
+    
+    def init_ui(self):
+        # Создаем вкладки
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane { border: none; }
+            QTabBar::tab { 
+                padding: 8px 12px; 
+                background: #f0f0f0; 
+                border: 1px solid #ddd; 
+                border-bottom: none; 
+                border-top-left-radius: 4px; 
+                border-top-right-radius: 4px; 
+            }
+            QTabBar::tab:selected { 
+                background: white; 
+                border-bottom: 1px solid white; 
+            }
+        """)
+        
+        # Вкладка Play
+        self.play_tab = PlayTab(self)
+        self.tabs.addTab(self.play_tab, QIcon("assets/play_icon.png"), "Play")
+        
+        # Вкладка News
+        self.news_tab = NewsTab()
+        self.tabs.addTab(self.news_tab, QIcon("assets/news_icon.png"), "News")
+        
+        # Вкладка Settings
+        self.settings_tab = SettingsTab()
+        self.tabs.addTab(self.settings_tab, QIcon("assets/settings_icon.png"), "Settings")
+        
+        # Устанавливаем центральный виджет
+        self.setCentralWidget(self.tabs)
     
     def load_versions(self):
         try:
+            self.play_tab.version_select.clear()
             versions = get_version_list()
             release_versions = [v for v in versions if v["type"] == "release"]
             
-            # Sort versions by release time (newest first)
+            # Сортируем версии по дате выхода (новые сначала)
             release_versions.sort(key=lambda x: x["releaseTime"], reverse=True)
             
-            for version in release_versions[:20]:  # Show only the 20 most recent releases
-                self.version_select.addItem(version["id"])
+            for version in release_versions[:20]:  # Показываем только 20 последних релизов
+                self.play_tab.version_select.addItem(version["id"])
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load Minecraft versions: {e}")
     
     def state_update(self, value):
-        self.start_button.setDisabled(value)
-        self.start_progress_label.setVisible(value)
-        self.start_progress.setVisible(value)
-        self.nav_list.setDisabled(value)
+        self.play_tab.start_button.setDisabled(value)
+        self.play_tab.start_progress_label.setVisible(value)
+        self.play_tab.start_progress.setVisible(value)
+        self.tabs.setTabEnabled(1, not value)  # News tab
+        self.tabs.setTabEnabled(2, not value)  # Settings tab
     
     def update_progress(self, progress, max_progress, label):
-        self.start_progress.setValue(progress)
-        self.start_progress.setMaximum(max_progress)
-        self.start_progress_label.setText(label)
-    
-    def launch_game(self):
-        ram_amount = int(self.settings_page.ram_slider.currentText())
-        self.launch_thread.launch_setup_signal.emit(
-            self.version_select.currentText(),
-            self.username.text(),
-            ram_amount
-        )
-        self.launch_thread.start()
+        self.play_tab.start_progress.setValue(progress)
+        self.play_tab.start_progress.setMaximum(max_progress)
+        self.play_tab.start_progress_label.setText(label)
     
     def handle_launch_finished(self, return_code):
         if return_code != 0:
@@ -395,38 +407,47 @@ class MainWindow(QMainWindow):
         else:
             event.accept()
 
-if __name__ == '__main__':
-    # Set up Minecraft directory
-    minecraft_directory = get_minecraft_directory().replace('minecraft', 'FlatLauncher')
-    os.makedirs(minecraft_directory, exist_ok=True)
-    
-    # Create application
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    app = QApplication(sys.argv)
-    FlatStyle.apply(app)
-    
-    # Check for required assets
+def create_placeholder_assets():
+    """Создает placeholder-ресурсы, если они отсутствуют"""
     if not os.path.exists("assets"):
         os.makedirs("assets")
     
-    # Create placeholder assets if they don't exist
-    if not os.path.exists("assets/logo.png"):
-        # Create a simple placeholder logo
-        from PIL import Image, ImageDraw, ImageFont
-        img = Image.new('RGB', (256, 256), color=(73, 109, 137))
-        d = ImageDraw.Draw(img)
-        d.text((10, 10), "FlatLauncher", fill=(255, 255, 255))
-        img.save("assets/logo.png")
-    
+    # Иконка приложения
     if not os.path.exists("assets/icon.png"):
-        # Create a simple placeholder icon
         from PIL import Image, ImageDraw
         img = Image.new('RGB', (64, 64), color=(73, 109, 137))
         d = ImageDraw.Draw(img)
         d.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
         img.save("assets/icon.png")
     
-    # Create and show main window
+    # Иконки для вкладок
+    icons = {
+        "play_icon.png": ("▶", (42, 130, 218)),
+        "news_icon.png": ("📰", (218, 130, 42)),
+        "settings_icon.png": ("⚙", (130, 42, 218))
+    }
+    
+    for filename, (symbol, color) in icons.items():
+        if not os.path.exists(f"assets/{filename}"):
+            img = Image.new('RGB', (32, 32), color=color)
+            d = ImageDraw.Draw(img)
+            d.text((8, 8), symbol, fill=(255, 255, 255))
+            img.save(f"assets/{filename}")
+
+if __name__ == '__main__':
+    # Создаем placeholder-ресурсы
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        create_placeholder_assets()
+    except ImportError:
+        print("Pillow not installed, placeholder assets won't be created")
+
+    # Настройка приложения
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    app = QApplication(sys.argv)
+    FlatStyle.apply(app)
+    
+    # Создание и отображение главного окна
     window = MainWindow()
     window.show()
     
